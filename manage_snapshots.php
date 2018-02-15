@@ -1,6 +1,14 @@
 #!/usr/bin/php
 <?php
 
+function on_exception($Ex){
+	$errstr = $Ex->getMessage();
+	echo "Exception: ".$errstr."\n";
+	exec_ret("gcloud logging write --severity=ERROR 'snapshot_error' '".escapeshellarg($errstr)."'");
+}
+set_exception_handler("on_exception");
+
+
 if(!isset($argv[1])){
 	echo("php manage_snapshots.php take\n");
 	echo("php manage_snapshots.php free_old\n");
@@ -38,12 +46,20 @@ if($argv[1] == 'free_old'){
 			$snapshots_of_disks[$source_disk][] = $snapshot;
 		}
 	}
+	$date_categories = array();
+	$curent_time = time();
 	foreach($snapshots_of_disks AS $source_disk_uri => $disk_snapshots){
-
+		echo("source: ".$source_disk_uri."\n");
+		foreach($disk_snapshots AS $snapshot){
+			$age = $curent_time - $snapshot['snapshot_unix_time'];
+			$age_in_days = $age/(3600*24);
+			echo("	age in days: ".$age_in_days."\n");
+		}
 	}
 
 	exit;
 }
+
 function take_snappshot($instance){
 
 	$snappdate = 'auto-'.date("Y-m-d-H-i-s").'-';
@@ -107,10 +123,10 @@ function list_snapshots($diskuri = NULL){
 		if(!empty($uri_parts['path'])){
 			$path = explode('/', $uri_parts['path']);
 			if(count($path) != 8){
-				throw new Exception("compute snapshot uri is malformated $uri");
+				throw new Exception("compute snapshot uri is malformated ".$line['selfLink']);
 			}
 			if($path[2] != 'v1'){
-				throw new Exception("compute snapshot uri is not version v1 $uri");
+				throw new Exception("compute snapshot uri is not version v1 ".$line['selfLink']);
 			}
 			$line['project'] = $path[4];
 			$snapshots[] = $line;
@@ -137,10 +153,10 @@ function list_disks($instance = NULL){
 		if(!empty($uri_parts['path'])){
 			$path = explode('/', $uri_parts['path']);
 			if(count($path) != 9){
-				throw new Exception("compute disk uri is malformated $uri");
+				throw new Exception("compute disk uri is malformated ".$line['selfLink']);
 			}
 			if($path[2] != 'v1'){
-				throw new Exception("compute disk uri is not version v1 $uri");
+				throw new Exception("compute disk uri is not version v1 ".$line['selfLink']);
 			}
 			$line['project'] = $path[4];
 			$line['zone'] = $path[6];
@@ -167,10 +183,10 @@ function list_instances(){
 		if(!empty($uri_parts['path'])){
 			$path = explode('/', $uri_parts['path']);
 			if(count($path) != 9){
-				throw new Exception("compute instance uri is malformated $uri");
+				throw new Exception("compute instance uri is malformated ".$line['selfLink']);
 			}
 			if($path[2] != 'v1'){
-				throw new Exception("compute instance uri is not version v1 $uri");
+				throw new Exception("compute instance uri is not version v1 ".$line['selfLink']);
 			}
 			$line['project'] = $path[4];
 			$line['zone'] = $path[6];
