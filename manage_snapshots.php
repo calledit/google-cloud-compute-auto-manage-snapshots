@@ -4,7 +4,7 @@
 function on_exception($Ex){
 	$errstr = $Ex->getMessage();
 	echo "Exception: ".$errstr."\n";
-	exec_ret("gcloud logging write --severity=ERROR 'snapshot_error' '".escapeshellarg($errstr)."'");
+	exec_ret("gcloud logging write --severity=ERROR 'snapshot_error' ".escapeshellarg($errstr));
 }
 set_exception_handler("on_exception");
 
@@ -46,18 +46,78 @@ if($argv[1] == 'free_old'){
 			$snapshots_of_disks[$source_disk][] = $snapshot;
 		}
 	}
-	$date_categories = array();
 	$curent_time = time();
 	foreach($snapshots_of_disks AS $source_disk_uri => $disk_snapshots){
 		echo("source: ".$source_disk_uri."\n");
+		$date_categories = array(
+			'7days' => array(),
+			'31days' => array(),
+			'100days' => array(),
+			'over100days' => array(),
+		);
 		foreach($disk_snapshots AS $snapshot){
 			$age = $curent_time - $snapshot['snapshot_unix_time'];
 			$age_in_days = $age/(3600*24);
-			echo("	age in days: ".$age_in_days."\n");
+			$age_in_full_days = intval($age_in_days);
+			$snapshot['age_in_full_days'] = $age_in_full_days;
+			$snapshot['day_of_week'] = date('w', $snapshot['snapshot_unix_time']);
+
+			if($age_in_full_days < 7){
+				$date_categories['7days'][] = $snapshot;
+			}elseif($age_in_full_days < 31){
+				$date_categories['31days'][] = $snapshot;
+			}elseif($age_in_full_days < 100){
+				$date_categories['100days'][] = $snapshot;
+			}else{
+				$date_categories['over100days'][] = $snapshot;
+			}
+			//echo("	age in days: ".$age_in_days."\n");
+		}
+
+
+
+		//sunday = day_of_week = 0
+		//monday = day_of_week = 1
+		//thusday = day_of_week = 2
+		//wensday = day_of_week = 3
+		//thursday = day_of_week = 4
+		//friday = day_of_week = 5
+		//saturday = day_of_week = 6
+
+		//for snappshots of the last 7 days we keep them all
+		//$date_categories['7days']
+
+		//for snappshots of the last 31 days we keep the ones taken on tuesday and friday
+		foreach($date_categories['31days'] AS $snapshot){
+			if($snapshot['day_of_week'] == 2 || $snapshot['day_of_week'] == 5){
+				//keep this snapshot
+			}else{
+				echo "31days remove snapshot: ".$snapshot['name']."\n";
+				remove_snappshot($snapshot);
+			}
+		}
+
+		//for snappshots of the last 100 days we keep the ones taken on tuesday
+		foreach($date_categories['100days'] AS $snapshot){
+			if($snapshot['day_of_week'] == 2){
+				//keep this snapshot
+			}else{
+				echo "100days remove snapshot: ".$snapshot['name']."\n";
+				remove_snappshot($snapshot);
+			}
+		}
+
+		//we discard all snapshots older than 100 days
+		foreach($date_categories['over100days'] AS $snapshot){
+			echo "over100days remove snapshot: ".$snapshot['name']."\n";
+			remove_snappshot($snapshot);
 		}
 	}
 
 	exit;
+}
+function remove_snappshot($snapshot){
+	exec_ret("gcloud compute snapshots delete ".$snapshot['name'].' --quiet');
 }
 
 function take_snappshot($instance){
@@ -95,9 +155,14 @@ function take_snappshot($instance){
 		$instance_disks[] = $disk['deviceName'];
 	}
 
+	$tags = array();
+	if(isset($instance['tags']['items'])){
+		$tags = $instance['tags']['items'];
+	}
+
 
 	//snapshot.description cant be larger than 2048
-	$instance_info = $instance_info.' disks: ('.implode(', ', $instance_disks).') nets: ('.implode(', ', $instance_nets).') tags: ('.implode(', ', $instance['tags']['items']).')';
+	$instance_info = $instance_info.' disks: ('.implode(', ', $instance_disks).') nets: ('.implode(', ', $instance_nets).') tags: ('.implode(', ', $tags).')';
 
 	//Dent send enters to the command line
 	$instance_info = substr(str_replace("\n", " ", $instance_info), 0 ,2048);
@@ -200,7 +265,7 @@ function list_instances(){
 function exec_ret($cmd){
 	exec($cmd, $out, $fail);
 	if($fail != 0){
-		throw Exception("Failed to run command: $cmd");
+		throw new Exception("Failed to run command: $cmd");
 	}
 	return $out;
 }
