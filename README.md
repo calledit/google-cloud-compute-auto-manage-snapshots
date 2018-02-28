@@ -1,12 +1,18 @@
 # google-cloud-compute-auto-manage-snapshots
-A project to take and manage daily snapshots of all your gcp instances
+A project to take and manage daily snapshots of all your gcp instances.
+
+# Similar projects
+* https://github.com/grugnog/google-cloud-auto-snapshot
+* https://github.com/jacksegal/google-compute-snapshot
+
+
 
 # Function
 Take one snapshot of every instance in your project once every day
 Then as time goes delete snapshots.
 
 # Cleaning of old snapshots
-All snapshots are kept for 7 days. After 7 Days snapshots made on Tuesdays and Fridays are kept the rest gets removed. After 31 days snapshots made on Tuesdays are kept the rest gets removed. After 100 days all the snapshots are cleared.
+All snapshots are kept for 7 days. After 7 Days snapshots made on Tuesdays and Fridays are kept the rest gets removed. After 31 days snapshots made on Tuesdays are kept the rest gets removed. After 100 days all the snapshots are cleared. This means that it should always be possible to restore about 90 days back in time without having the full performance penalty that 90 snapshots would give.
 
 # How to use
 1. Create an instance on GCP give it read/write access to compute engine
