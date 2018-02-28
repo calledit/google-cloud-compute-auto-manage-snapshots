@@ -19,6 +19,7 @@ All snapshots are kept for 7 days. After 7 Days snapshots made on tuesdays and f
 create an entrys:
 
 25      01      *       *       *       /usr/bin/php /opt/google-cloud-compute-auto-manage-snapshots/manage_snapshots.php take
+
 25      05      *       *       *       /usr/bin/php /opt/manage_snapshots/manage_snapshots.php free_old
 
 It will use the rights given to the GCP instance so no crediental configuration is required. 
