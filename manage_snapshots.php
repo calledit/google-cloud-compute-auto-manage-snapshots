@@ -7,9 +7,14 @@
 function on_exception($Ex){
 	$errstr = $Ex->getMessage();
 	echo "Exception: ".$errstr."\n";
-	exec_ret("gcloud logging write --severity=ERROR 'snapshot_error' ".escapeshellarg($errstr));
+	log_error($errstr);
 }
 set_exception_handler("on_exception");
+
+
+function log_error($errstr){
+	exec_ret("gcloud logging write --severity=ERROR 'snapshot_error' ".escapeshellarg($errstr));
+}
 
 
 if(!isset($argv[1])){
@@ -33,9 +38,24 @@ if($argv[1] == 'take'){
 	exit;
 }
 
+function check_progress($data, $time){
+	global $max_time_to_take_backup;
+	if($data == ''){
+		//echo "no data\n";
+	}else{
+		echo($data);
+	}
+	if($max_time_to_take_backup < $time){
+		log_error("backup has taken to long to finnish");
+		echo("backup has taken to long to finnish should take max: $max_time_to_take_backup has taken: $time \n");
+	}
+}
 
 if($argv[1] == 'offsite_backup'){
 	//preferably run this once a week on saturday or sunday just after that days snapshot has been taken that way you get the wekend to to transfer and mimimize bandwith impact and get an extra backup that is keppt for more than 7 days
+
+	//exec_ret_progress('/opt/manage_snapshots/time_out.sh', 'check_progress');
+	//exit;
 
 	echo "transfering backups to offsiste storage (functionality WORK IN PROGRESS)\n";
 
@@ -44,6 +64,19 @@ if($argv[1] == 'offsite_backup'){
 	echo "own zone: $own_zone\n";
 
 	$time_per_GB = 60*10;//We allow 10 minutes per GB of disk if it takes longer than that we asume there has been an error
+
+	//Do we have and old ofsite disk we need to remove
+	$offsite_disk_exists = false;
+	$machine_disks = list_disks();
+	foreach($machine_disks AS $disk){
+		if($disk['name'] == 'offsite-disk'){
+			$offsite_disk_exists = true;
+		}
+	}
+	if($offsite_disk_exists){
+		echo("An offsite disk allredy existed removing it first\n");
+		detatch_and_delete_offsite_disk($own_name, $own_zone);
+	}
 
 	$snapshots = list_snapshots();
 	$snapshots_of_disks = group_auto_snappshots_per_disk($snapshots);
@@ -54,61 +87,89 @@ if($argv[1] == 'offsite_backup'){
 		echo("	snapshot: ".$last_snap['name']."\n");
 
 
-		//If this fails the offisite disk may exsit and need deletion due to a failed previus atempt
-		echo("gcloud compute disks create offsite-disk --zone=".$own_zone.' --source-snapshot '.$last_snap['name']);
-		echo "\n";
-		//echo("gcloud compute instances attach-disk ".$own_name." --mode=ro --zone=".$own_zone.' --device-name=attached-offsite --disk=offsite-disk');//disk read only when using dd
-		echo("gcloud compute instances attach-disk ".$own_name." --zone=".$own_zone.' --device-name=attached-offsite --disk=offsite-disk');//to use clonezilla we need the disk to be writable
-		echo "\n";
-		echo "file should now be attahed to this device and be named: /dev/disk/by-id/google-attached-offsite\n";
+		//If there is a disk attached detach and remove it first
+		if(file_exists('/dev/disk/by-id/google-attached-offsite')){
+			echo("Detactching old disk before initiating\n");
+			detatch_and_delete_offsite_disk($own_name, $own_zone);
+		}
 
-		$disk_device = explode('/', readlink('/dev/disk/by-id/google-attached-offsite'));
-		$disk_device = array_pop($disk_device);
+		try{
 
+			echo("Creating and attaching snapshot\n");
+			create_and_attach_offsite_disk($own_name, $own_zone, $last_snap['name'], false);
 
-		echo "/home/partimag/ Needs to be mounted offsite with NFS or similar";
+			if(!file_exists('/dev/disk/by-id/google-attached-offsite')){
+				throw new Exception("failed to attach snapdisk");
+			}
 
-		$max_time_to_take_backup = $last_snap['diskSizeGb'] * $time_per_GB;
-
-
-		//We should interupt the procces if it takes longer than it should
-		$time_before_backup  = time();
-
-		//This is the fastest way to take the image but it does require the disk to be writen to
-		echo "sudo /usr/sbin/ocs-sr -batch -q2 -j2 -z1 -i 2000 -fsck-src-part-y -nogui -p true savedisk ".$last_snap['name']." ".$disk_device."\n";
+			//get the 3 letter disk dev name i.e sdb
+			$disk_device = explode('/', readlink('/dev/disk/by-id/google-attached-offsite'));
+			$disk_device = array_pop($disk_device);
 
 
-		$time_taken = time() - $time_before_backup;
-
-		//TODO this does nothing we need to run this check in parallel with the backup
-		if($time_taken > $max_time_to_take_backup){
-			echo("The backup was to slow it should have finished earlier\n");
-		};
+			echo "/home/partimag/ Needs to be mounted offsite with NFS or similar\n";
 
 
-		echo "backup should now be located at /home/partimag/".$last_snap['name']."\n";
+			$max_time_to_take_backup = $last_snap['diskSizeGb'] * $time_per_GB;
 
-		//We rename the clonezilla folder to indicate that the backup is done
-		echo "sudo mv /home/partimag/".$last_snap['name']." /home/partimag/done-".$last_snap['name']."\n";
+			echo "Starting backup, it should not take longer than $max_time_to_take_backup seconds to complete\n";
 
 
-		echo("gcloud compute instances detach-disk ".$own_name." --zone=".$own_zone.' --disk=offsite-disk');
-		echo "\n";
-		echo("gcloud compute disks delete offsite-disk --zone=".$own_zone.' --quiet');
-		echo "\n";
+			//This is the fastest way to take the image but it does require the disk to be writen to
+			exec_ret_progress("sudo /usr/sbin/ocs-sr -batch -q2 -j2 -z1 -i 2000 -fsck-src-part-y -nogui -p true savedisk ".$last_snap['name']." ".$disk_device, 'check_progress');
 
-		//at this point the files need to be locked so that this machine cant read or alter the files. It is an offsite backup for a reason...
+			//We rename the clonezilla folder to indicate that the backup is done
+			exec_ret("sudo mv /home/partimag/".$last_snap['name']." /home/partimag/done/".$last_snap['name']);
 
-		//This is super slow but it garanties a perferct image
-		//echo "dd if=/dev/disk/by-id/google-attached-offsite | gzip -1 - | dd of=image.gz";
-		echo "\n";
+			echo "backup done, should now be located at /home/partimag/done/".$last_snap['name']."\n";
 
-		exit;
+
+
+
+			//at this point the files need to be locked so that this machine cant read or alter the files. It is an offsite backup for a reason...
+
+			//This is super slow but it garanties a perferct image
+			//echo "dd if=/dev/disk/by-id/google-attached-offsite | gzip -1 - | dd of=image.gz";
+			//echo "\n";
+
+		}catch(Exception $err){
+			log_error("Somthing did no go as planed when copying disk");
+		}
+
+		//We are done with the disk
+		echo("Detactching disk as we are done\n");
+		detatch_and_delete_offsite_disk($own_name, $own_zone);
+
+		//exit;
 	}
 	exit;
 }
 
+function create_and_attach_offsite_disk($own_name, $own_zone, $snapshot, $readonly){//$last_snap['name']
+	$ro = '';
+	if($readonly){
+		$ro = ' --mode=ro ';
+	}
+	//If this fails the offisite disk may exsit and need deletion due to a failed previus atempt
+	//disk read only when using dd
+	//to use clonezilla we need the disk to be writable
 
+	exec_ret("gcloud compute disks create offsite-disk --zone=".$own_zone.' --source-snapshot '.$snapshot);
+	exec_ret("gcloud compute instances attach-disk ".$own_name." ".$ro." --zone=".$own_zone.' --device-name=attached-offsite --disk=offsite-disk');
+}
+
+function detatch_and_delete_offsite_disk($own_name, $own_zone){
+	try{
+		exec_ret("gcloud compute instances detach-disk ".$own_name." --zone=".$own_zone.' --disk=offsite-disk');
+	}catch(Exception $err){
+		log_error('could not detach offsite-disk');
+	}
+	try{
+		exec_ret("gcloud compute disks delete offsite-disk --zone=".$own_zone.' --quiet');
+	}catch(Exception $err){
+		log_error('could not delete offsite-disk');
+	}
+}
 
 if($argv[1] == 'free_old'){
 	$snapshots = list_snapshots();
@@ -242,7 +303,7 @@ function take_snappshot($instance){
 		$snapname = $snappdate.$disk['name'];
 		if(strlen($snapname) > 63){
 			//Disk names can not be longer than 39 charaters long as the date is 24 characters long
-			exec_ret("gcloud logging write --severity=ERROR 'snapshot_error' ".escapeshellarg($snapname.' is longer than 63 charaters long'));
+			log_error($snapname.' is longer than 63 charaters long');
 		}
 		$names[] = substr($snapname, 0 , 63);
 	}
@@ -377,6 +438,19 @@ function list_instances(){
 	return $instances;
 }
 
+function exec_ret_progress($cmd, $progress_func){
+	$start = time();
+	$handle = popen($cmd.' 2>&1', 'r');
+	stream_set_blocking($handle, false);
+
+	while(!feof($handle)){
+		$read = fgets($handle);
+		$time_active = time() - $start;
+		$progress_func($read, $time_active);
+		sleep(1);
+	}
+	return pclose($handle);
+}
 
 function exec_ret($cmd){
 	exec($cmd, $out, $fail);
