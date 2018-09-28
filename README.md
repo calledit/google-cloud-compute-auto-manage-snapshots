@@ -29,7 +29,7 @@ create cronjob entrys:
 25      05      *       *       *       /usr/bin/php /opt/google-cloud-compute-auto-manage-snapshots/manage_snapshots.php free_old
 ```
 
-To make sure that the gcloud banary can be reached from the cronjob you might have to add this to your crontab:
+To make sure that the gcloud binary can be reached from the cronjob you might have to add this to your crontab:
 ```
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
 ```
