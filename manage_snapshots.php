@@ -2,7 +2,7 @@
 <?php
 
 
-//Dependencys php clonezilla gcloud
+//Dependencys php gcloud
 
 function on_exception($Ex){
 	$errstr = $Ex->getMessage();
@@ -22,7 +22,8 @@ function log_prog($errstr){
 	file_put_contents("/tmp/backup_prog.log", $errstr."\n", FILE_APPEND | LOCK_EX);
 }
 
-$folder_destination = '/home/partimag/';
+$folder_destination = '/media/gcp_backups/';
+$sql_backup_dest = $folder_destination.'sql_backups/';
 
 function take_disk_backup($disk_device, $target_name, $meta_data, $use_file_name_hashing = false, $compress = true){
 	global $folder_destination, $offsite_disk_name;
@@ -184,6 +185,7 @@ if(!isset($argv[1])){
 	echo("php manage_snapshots.php take\n");
 	echo("php manage_snapshots.php free_old\n");
 	echo("php manage_snapshots.php offsite_backup\n");
+	echo("php manage_snapshots.php sql_backup\n");
 	echo("php manage_snapshots.php list_users\n");
 	exit;
 }
@@ -201,6 +203,25 @@ if($argv[1] == 'take'){
 		}
 		echo "Taking snappshots of the instance ".$instance['name']."\n";
 		take_snappshot($instance);
+
+		echo "\n\n\n";
+
+	}
+	exit;
+}
+
+if($argv[1] == 'sql_backup'){
+	$sql_instances = list_sql_instances();
+	//exit;
+	foreach($sql_instances AS $sql_instance){
+		if(isset($argv[2])){
+			if($argv[2] != $sql_instance['name']){
+				continue;
+			}
+		}
+		echo "Taking sql backup of the sql instance ".$sql_instance['name']."\n";
+		//take_snappshot($instance);
+		take_sql_backup($sql_instance);
 
 		echo "\n\n\n";
 
@@ -653,6 +674,46 @@ function list_disks($instance = NULL){
 	return $disks;
 }
 
+function take_sql_backup($sql_instance){
+	global $sql_backup_dest;
+	$bucket_name = 'gs://'.$sql_instance['project'].'-'.$sql_instance['region'].'-'.$sql_instance['name'].'-backup';
+
+	//create bucket
+	$list_data = exec_ret("gsutil mb -p ".$sql_instance['project']." -l ".$sql_instance['region']." ".$bucket_name);
+
+	//Add instance service account to bucket
+	$list_data = exec_ret("gsutil acl ch -u ".$sql_instance['serviceAccountEmailAddress'].":W ".$bucket_name);
+
+	//export database to bucket
+	$list_data = exec_ret("gcloud sql export sql ".$sql_instance['name']." ".$bucket_name."/".$sql_instance['name'].".sql.gz");
+
+	//Move backup from bucket
+	$list_data = exec_ret("gsutil mv ".$bucket_name."/".$sql_instance['name'].".sql.gz ".$sql_backup_dest.$sql_instance['name'].".sql.gz");
+
+	//remove bucket
+	$list_data = exec_ret("gsutil rb -f ".$bucket_name);
+
+}
+
+function list_sql_instances(){
+	$list_data = exec_ret("gcloud sql instances list --format=json");
+
+        $list = json_decode(implode("\n", $list_data), true);
+        if(!is_array($list)){
+                throw new Exception("list was not proper json");
+        }
+
+	$instances = array();
+
+	foreach($list AS $line){
+		$uri_parts = parse_url($line['selfLink']);
+		if(!empty($uri_parts['path'])){
+			$instances[] = $line;
+		}
+	}
+	return $instances;
+}
+
 
 function list_instances(){
 	$list_data = exec_ret("gcloud compute instances list --format=json");
@@ -739,4 +800,3 @@ function exec_ret($cmd){
 	}
 	return $out;
 }
-
