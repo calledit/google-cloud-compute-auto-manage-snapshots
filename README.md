@@ -41,6 +41,5 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/us
 
 # Service account
 It will use the rights given to the GCP instance.
-Create a service account with the following roles and attach it to the instance:
+Create a service account with the project Editor role and attach it to the instance.
 
-![Roles screenshot](service_account_roles.png)
