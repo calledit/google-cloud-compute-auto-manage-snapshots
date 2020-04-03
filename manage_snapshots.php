@@ -18,6 +18,7 @@ function log_error($errstr){
 	exec_ret("gcloud logging write --severity=ERROR 'snapshot_error' ".escapeshellarg($errstr));
 }
 function log_prog($errstr){
+	$errstr = date("[d/M/Y:H:i:s O]").' '.$errstr;
 	echo $errstr."\n";
 	file_put_contents("/tmp/backup_prog.log", $errstr."\n", FILE_APPEND | LOCK_EX);
 }
