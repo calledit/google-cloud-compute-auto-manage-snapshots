@@ -22,7 +22,7 @@ All snapshots are kept for 7 days. After 7 Days snapshots made on Tuesdays and F
 1. sudo apt-get install php git
 1. edit /etc/fstab make sure that /media/gcp_backups is mounted to a offsite nfs server that has daily snapshots.
 1. cd /opt
-1. git clone https://github.com/callesg/google-cloud-compute-auto-manage-snapshots
+1. git clone https://github.com/calledit/google-cloud-compute-auto-manage-snapshots
 1. crontab -e
 
 
