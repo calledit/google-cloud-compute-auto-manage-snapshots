@@ -1,6 +1,38 @@
 # google-cloud-compute-auto-manage-snapshots
 A project to take and manage daily snapshots and backups of all your gcp instances.
 
+## Usage
+
+### php manage_snapshots.php take [gcp compute instance name]
+```
+Takes snapshots of all the disks that belong to an instance, if no compute instance name is
+given it takes snapshots of all your compute instances.
+
+This is done by listing the disks of the machine and calling "gcloud compute disks snapshot" on each disk.
+```
+### php manage_snapshots.php free_old
+```
+Clears old snapshots made by php manage_snapshots.php take
+
+Snapshots for the last 7 days are kept. For snapshots older than 7 days snapshots made on Tuesdays and Fridays are kept,
+the rest gets removed. For snapshots older than 31 days, snapshots made on Tuesdays are kept the rest gets removed.
+After 100 days all the snapshots are cleared. This means that it should always be possible to restore about 90 days
+back in time without having the full performance penalty that 90 snapshots would give.
+```
+
+### php manage_snapshots.php sql_backup [gcp sql instance name]
+```
+Takes backups of the GCP managed databases, if no sql instance name is given it makes backups of all gcp sql instances.
+The backups are saved to /media/gcp_backups/ 
+```
+
+### php manage_snapshots.php offsite_backup
+```
+Dumps the contents off all disks, compresses the contents and saves disk images to a nfs(or other network) mounted folder.
+Uses /tmp/ as a working area to cheksum disk contents, so it is importatnt to mount /tmp/ as a ramdisk.
+
+```
+
 # Similar projects
 * https://github.com/grugnog/google-cloud-auto-snapshot
 * https://github.com/jacksegal/google-compute-snapshot
@@ -11,9 +43,6 @@ A project to take and manage daily snapshots and backups of all your gcp instanc
 Take one snapshot of every instance in your project once every day
 Then as time goes delete snapshots.
 Take backups of the sql intances daily and transfer them away from gcp.
-
-# Cleaning of old snapshots
-All snapshots are kept for 7 days. After 7 Days snapshots made on Tuesdays and Fridays are kept the rest gets removed. After 31 days snapshots made on Tuesdays are kept the rest gets removed. After 100 days all the snapshots are cleared. This means that it should always be possible to restore about 90 days back in time without having the full performance penalty that 90 snapshots would give.
 
 # How to use
 1. Create a new service account in GCP
